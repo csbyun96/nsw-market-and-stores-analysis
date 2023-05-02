@@ -1,4 +1,4 @@
-# Forecasting the Turnover of Markets and Stores in New South Wales
+# Forecasting the Turnover of Markets and Stores in New South Wales - R
 
 
 The project focuses on forecasting the turnover of markets and stores in New South Wales using time series data. To achieve this, compared three popular decomposition methods: Additive, X-11, and STL.
