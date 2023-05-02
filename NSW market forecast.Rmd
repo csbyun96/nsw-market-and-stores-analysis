@@ -1,0 +1,224 @@
+---
+title: "Forecasting Turnover of Markets in New South Wales"
+author: "Changsoo Byun"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval=TRUE, error=TRUE, cache=FALSE)
+library(fpp3)
+library(readr)
+```
+
+```{r echo=FALSE, message=FALSE}
+
+meta <- read_csv("aus_market_data.csv", col_names = TRUE, n_max = 3)
+
+
+dat <- read_csv("aus_market_data.csv", 
+                col_names = colnames(meta),
+                skip = 4)
+
+
+my_series <- dat %>% 
+  rename(Month = "ID", y ="442222") %>%
+  select(Month, y) %>% 
+  mutate(Month=yearmonth(Month)) %>% 
+  as_tsibble(index = Month)
+
+```
+
+
+
+
+
+```{r}
+#Time plot of Turnover of Supermarket and Grocery Stores in New South Wales
+
+timeplot <- my_series |> 
+  autoplot(y)+
+  labs(title="Turnover of Supermarket and Grocery Stores",
+       subtitle="New South Wales",
+       y="$(millions)")
+
+print(timeplot)
+
+```
+
+#The time plot depicts an increasing trend in the turnover data of supermarket and grocery stores in New South Wales. Moreover, there is a clear presence of seasonality in the data as the turnover is consistently higher during November and December. The pattern of rises and falls in the data occurs at fixed periods, indicating the absence of any significant cyclicity. 
+
+```{r}
+#Seasonal Plot of Turn of Supermarket and Grocery Stores in New South Wales
+
+seasonal <- my_series |>
+  gg_season(y, labels="both")+
+  labs(title="Seasonal Plot: Turnover of Supermarket and Grocery Stores",
+       subtitle="New South Wales",
+       y="$(millions)")
+
+seasonal
+
+
+```
+
+#The turnover of supermarket and grocery stores in New South Wales shows a sharp increase in March and December, while February shows a slight dip. Seasonal factors such as the Christmas or other holidays drive high turnover during March and December.
+
+```{r}
+#Seasonal subseries plots
+
+ssp <- my_series |> 
+  gg_subseries(y)+
+  labs(
+    y="$(millions)",
+    title="Seasonal subseries Plots: Turnover of Supermarket and Grocery Stores",
+    subtitle="New South Wales"
+  )
+
+ssp
+
+```
+#The plot displays some seasonal patterns, with a notable rise in turnover during December and a decline in February, while other months remain consistent with few fluctuations.
+
+\newpage
+
+
+```{r}
+#Additive decomposition
+
+AD <- my_series |> 
+  model(
+    classical_decomposition(y, type = "additive")
+  ) |>
+  components() |>
+  autoplot() +
+  labs(title = "Classical additive decomposition of Turnover of Supermarket and Grocery Stores",
+       subtitle="New South Wales"
+       )
+
+AD
+
+```
+
+```{r}
+#X-11 method
+
+x11_dcmp <- my_series |> 
+  model(x11 = X_13ARIMA_SEATS(y ~ x11())) |>
+  components()
+autoplot(x11_dcmp) +
+  labs(title =
+    "Decomposition of Turnover of Supermarket and Grocery Stores using X-11.",
+    subtitle="New South Wales")
+
+x11_dcmp
+
+```
+
+```{r}
+#STL decomposition
+
+STL <- my_series |> 
+   model(
+    STL(y ~ trend(window = 7) +
+                   season(window = "periodic"),
+    robust = TRUE)) |>
+  components() |>
+  autoplot()
+
+STL
+```
+
+#Transformations may not be necessary when analyzing time series data, and simple transformations are often sufficient. The use of transformations can significantly affect the PI. If the data contains zeros or negative values, a lamda value greater than zero or the log1p() can be used. Using log transformations is a straightforward way to ensure that forecasts remain positive. It is important to reverse any transformations applied to the data to obtain forecasts in the original scale.
+
+#STL is a more suitable method as it offers advantages over classical decomposition and X-11. It has the ability to handle any type of seasonality, and the seasonal component can change over time with a user-defined rate of change. Users can also control the smoothness of the trend-cycle. Additionally, it doesn't involve trading day or calendar adjustments and only utilizes additive methods
+
+
+\newpage
+
+
+```{r}
+#Training sets
+
+train <- my_series |> 
+  slice(1:441)
+
+train
+
+#Test Sets
+
+test <- my_series |> 
+  slice(442:nrow(my_series))
+
+test
+
+#Plot to check 
+
+q3p <- ggplot() +
+  geom_line(data = train, aes(x = Month, y = y), color = "darkblue") +
+  geom_line(data = test, aes(x = Month, y = y), color = "red") +
+  labs(x = "Months", y = "$(millions)", title = "Train and Test sets") +
+  theme_minimal()
+
+q3p
+
+```
+\newpage
+
+
+```{r}
+
+fit <- train |> 
+  model(
+     Seasonal_naive = SNAIVE(y),
+     Drift = RW(y ~ drift())
+  )
+
+fc <- fit |> 
+  forecast(h= "2 years")
+
+fc |> 
+  autoplot(
+    my_series, level = NULL
+  )+
+  labs(y= "$(millions)",
+       title= "Forecasts for montly turnover of supermarket and grocery stores")+
+  guides(colour = guide_legend(title = "Forecast"))
+
+
+accuracy(fc, my_series)
+
+```
+
+#By looking at the error measures provided in the tibble table, it appears that the seasonal naive method is the most appropriate benchmark method for forecasting Turnover of Supermarket and Grocery Stores in New South Wales. The fact that the seasonal naive method outperforms the Drift method in terms of RMSE, MAE, MAPE, MASE, and RMSSE, indicating that it has a better overall accuracy. Moreover, the forecast plot seems that the seasonal naive method produces similar results to the actual turnover recorded.
+
+\newpage
+
+
+```{r}
+
+fit |> 
+  select(Seasonal_naive) |> 
+  gg_tsresiduals()
+
+augment(fit) |> 
+  filter(.model=="Seasonal_naive") |> 
+  features(.innov, ljung_box, lag=24)
+
+```
+
+#Based on the diagnostic plots, it appears that the selected model for the time series is inadequate. The autocorrelation plot reveals significant spikes at every lag, indicating that the model is not capturing all the relevant information in the data. Furthermore, the Ljung-Box test suggests strong evidence of residual autocorrelation in the model, which supports this conclusion. Additionally, the histogram of the residuals is slightly right-skewed and not centered around zero, indicating that the forecasts from the model may be biased. Taken together, these findings suggest that the chosen model may not provide accurate predictions. Therefore, it would be advisable to explore alternative models to obtain more reliable forecasting results.
+
+\newpage
+
+
+
+```{r}
+my_series |> 
+  model(SNAIVE(y)) |> 
+  forecast(h="2 years") |> 
+  autoplot(my_series)
+
+```
+#The plot shows the 80% and 95% prediction intervals and the point forecasts for the turnover of supermarket and grocery stores in New South Wales based on seasonal naive method.The point forecasts look reasonable, but the intervals are wide.This is due to the method relying solely on historical data and not capturing external variables, 
