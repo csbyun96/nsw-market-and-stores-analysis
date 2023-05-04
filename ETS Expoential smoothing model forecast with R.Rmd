@@ -1,0 +1,161 @@
+---
+title: "Expoential smoothing ETS model Forecasting Turnover of Markets in New South Wales"
+author: "Changsoo Byun"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval=TRUE, error=TRUE, cache=TRUE)
+library(fpp3)
+library(readr)
+library(ggplot2)
+meta <- read_csv("aus_market_data.csv", col_names = TRUE, n_max = 3)
+
+dat <- read_csv("aus_market_data.csv", 
+                col_names = colnames(meta),
+                skip = 4)
+
+my_series <- dat %>% 
+  rename(Month = "ID", y ="442222") %>%
+  select(Month, y) %>% 
+  mutate(Month=yearmonth(Month)) %>% 
+  as_tsibble(index = Month)
+
+train <- my_series |> 
+  slice(1:441)
+
+test <- my_series |> 
+  slice(442:nrow(my_series))
+```
+
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+timeplot <- train |> 
+  autoplot(y)+
+  labs(title="Turnover of Supermarket and Grocery Stores",
+       subtitle="New South Wales",
+       y="$(millions)")
+
+print(timeplot)
+```
+#Based on the time series plot of turnover in New South Wales supermarkets and grocery stores, a clear linear trend can be observed. The trend appears to be steadily increasing over time, indicating that an additive trend should be employed in the model. Multiplicative errors are useful when the data are strictly positive. Furthermore, the plot displays a multiplicative seasonality, as the seasonal pattern appears to increase proportionally with the level of the series. Therefore, a model with multiplicative seasonality will effectively capture and project the behavior of the seasonal pattern. (M, A, M)
+
+
+
+
+\newpage
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+fit <- train |>
+  model(
+    mam= ETS(y ~ error("M") + trend("A") + season("M"))
+  )
+
+report(fit)
+
+components(fit) |> autoplot()+
+  labs(title ="ETS(M,A,M) components")
+
+
+
+```
+#The parameter estimates are alpha=0.2395, beta=0.0061 and gamma=0.1417. The output also returns the estimates for the intial states l[0], b[0],s[0],s[-1], s[-2], s[-3], s[-4], s[-5], s[-6], s[-7],s[-8] s[-9], s[-10] and s[-11]. The smoothing parameters is restricted to between 0 and 1, which allows the equations to be interpreted as weighted averages. The lower the AIC, AICc, and BIC values (5577.774, 5579.221, and 5647.287, respectively), the better the model fits the data.
+
+
+
+\newpage
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+fit %>% select(mam) %>% gg_tsresiduals()
+
+augment(fit) |> 
+  features(.resid, ljung_box,lag=24)
+
+augment(fit) |> 
+  features(.resid, box_pierce,lag=24)
+
+```
+#The null hypothesis is the spike is 0 assuming the residuals are white noise. Computed in 95% CI and 24 degrees of freedom as it is seasonal. The results of the tests are statistically significant, having enough evidence to reject the null hypothesis. Hence, residuals are not white noise.
+
+
+
+\newpage
+
+
+```{r}
+fit2 <- train |>
+  model(auto=ETS(y))
+report(fit2)
+```
+#Model selection is using information criteria such as the AIC, AICc, and BIC. These criteria balance the trade-off between goodness-of-fit and model complexity. A lower value of these criteria suggests a better model. To illustrate this, several models, such as ETS(A,A,M), ETS(M,M,M), ETS(A,A,A), and ETS(M,A,A), could be compared to determine which one is the best fit for the data.
+
+
+\newpage
+
+
+```{r}
+fit2 <- train |>
+  model(
+    ETS_auto = ETS(y),
+    ETS_AAA = ETS(y ~ error("A") + trend("A") + season("A")),
+    ETS_damped = ETS(y ~ error("A") + trend("Ad")),
+    ETS_forbidden = ETS(y ~ error("A") + trend("Ad") + season("M"))
+  )
+
+
+glance(fit2)
+```
+#I got the identical ETS model/ Among the evaluated ETS models, ETS(M,A,M) which is auto exhibits the lowest AIC score, indicating it is the most appropriate choice as the ETS model. However, ETS_forbidden shows the best fit among the other models based on MSE and has the second lowest AIC and AICc scores, which are the preferred criteria for selecting the best ETS model. Therefore, ETS(A,Ad,M) could be a plausible alternative ETS model to consider.
+
+\newpage
+
+
+```{r}
+fc <- fit |> 
+  forecast(h="2 years")
+
+fc |> 
+  autoplot(
+    my_series
+    )+
+  labs(y= "$(millions)",
+       title= "Forecasts for montly turnover of supermarket and grocery stores")
+
+fit3 <- train |>
+  model(
+     ETS_forbidden = ETS(y ~ error("A") + trend("Ad") + season("M"))
+     )
+
+fc2 <-  fit3 |> 
+  forecast(h="2 years")
+
+fc2 |> 
+  autoplot(
+    my_series
+    )+
+  labs(y= "$(millions)",
+       title= "Forecasts for montly turnover of supermarket and grocery stores")
+  
+  
+
+```
+
+#Both plots display the point forecasts and 80% and 95% prediction intervals for the turnover of supermarket and grocery stores in New South Wales, using two different models: ETS(M,A,M) and ETS(A,Ad,M). The point forecasts for both models appear reasonable, and the intervals are relatively narrow. However, upon closer inspection, the first plot, which represents the ETS(M,A,M) model, closely aligns with the original sample plot, suggesting that this model may provide more accurate forecasts than the ETS(A,Ad,M) model.
+
+\newpage
+
+
+```{r}
+my_series |> 
+  model(ETS(y ~ error("M") + trend("A") + season("M"))) |> 
+  forecast(h="2 years") |> 
+  autoplot(my_series)
+
+```
+#The plot displays the predicted turnover for supermarket and grocery stores in New South Wales using an ETS(M,A,M) model, including 80% and 95% prediction intervals. The model's point forecasts appear reasonable, and the narrow intervals indicate that the model performs well in capturing the trends and seasonal patterns in the data. Furthermore, the ETS(M,A,M) model produces the minimum AIC, which suggests that it is the best model to use for accurate predictions.
